@@ -161,13 +161,8 @@ def main():
             l_p = pearson_loss(outputs, labels) 
             l_1 = l1_loss(outputs, labels)
 
-            # 使用新的组合损失函数
-            if args.task_mode == "mel_spectrogram":
-                # 完整Mel频谱重建：使用组合损失函数
-                loss, loss_components = combined_loss(outputs, labels, alpha=0.1, beta=0.05)
-            else:
-                # 音频包络重建：使用原有损失函数
-                loss = l_p + args.lamda * l_1
+            # loss = l_p + args.lamda * l_1  + 3*info_nce
+            loss = l_p + args.lamda * l_1
 
             loss = loss.mean()
             loss.backward()

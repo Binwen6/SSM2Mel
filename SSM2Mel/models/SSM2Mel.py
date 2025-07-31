@@ -530,16 +530,7 @@ class Decoder(nn.Module):
         else:
             raise ValueError(f"未知的任务模式: {task_mode}")
         
-        # 修改输出层，为每个频带添加独立的处理
-        if task_mode == "mel_spectrogram":
-            # 为完整Mel频谱重建添加频带特定的处理
-            self.fc_shared = nn.Linear(64, 128)  # 共享特征提取
-            self.fc_bands = nn.ModuleList([
-                nn.Linear(128, 1) for _ in range(output_dim)
-            ])  # 每个频带独立的输出层
-        else:
-            # 音频包络重建保持原有结构
-            self.fc = nn.Linear(64, output_dim)
+        self.fc = nn.Linear(64, output_dim)
 
 
         self.unet = UNetModule(in_channels=640, mid_channels=640, out_channels=640)
@@ -686,21 +677,6 @@ class Decoder(nn.Module):
 
 
 
-        # 根据任务模式选择输出处理方式
-        if self.task_mode == "mel_spectrogram":
-            # 完整Mel频谱重建：为每个频带独立处理
-            shared_features = self.fc_shared(dec_input)  # [batch, time, 128]
-            
-            # 为每个频带生成独立的输出
-            outputs = []
-            for i, fc_band in enumerate(self.fc_bands):
-                band_output = fc_band(shared_features)  # [batch, time, 1]
-                outputs.append(band_output)
-            
-            # 拼接所有频带的输出
-            output = torch.cat(outputs, dim=-1)  # [batch, time, num_bands]
-        else:
-            # 音频包络重建：使用原有结构
-            output = self.fc(dec_input)
+        output = self.fc(dec_input)
 
         return output
