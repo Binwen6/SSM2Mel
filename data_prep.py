@@ -35,8 +35,24 @@ class SSM2MelConfig:
     TARGET_CHANNELS_EEG_MODEL_INPUT = 64 
     # 模型期望的序列长度 (来自main.py的args.sample_rate * args.win_len)
     TARGET_SEQUENCE_LENGTH = 640 
-    # 模型期望的Mel输出特征维度 (来自SSM2Mel.py的Decoder中fc层的输出)
-    TARGET_MEL_BANDS = 1 
+    
+    # 任务选择配置
+    TASK_MODE = "mel_spectrogram"  # 可选: "envelope" (音频包络重建) 或 "mel_spectrogram" (完整Mel频谱重建)
+    
+    # 根据任务模式动态设置Mel频带数
+    @classmethod
+    def get_target_mel_bands(cls):
+        if cls.TASK_MODE == "envelope":
+            return 1  # 音频包络重建：单频带
+        elif cls.TASK_MODE == "mel_spectrogram":
+            return 80  # 完整Mel频谱重建：80个频带
+        else:
+            raise ValueError(f"未知的任务模式: {cls.TASK_MODE}")
+    
+    # 兼容性属性，保持原有代码不变
+    @property
+    def TARGET_MEL_BANDS(self):
+        return self.get_target_mel_bands()
 
 # --- 音频文件路径 (TODO: 请根据您的实际情况修改此路径) ---
 # 示例: AUDIO_FILES_DIR = "/home/binwen6/code/CBD/Generate/audio_stimuli"
@@ -62,7 +78,7 @@ def generate_mel_spectrogram(audio_path, target_sfreq_features, target_sequence_
         audio_path (str): 音频文件完整路径。
         target_sfreq_features (int): 目标特征采样率 (例如 64Hz)。
         target_sequence_length (int): 目标序列长度 (例如 640)。
-        target_mel_bands (int): 目标Mel频谱频带数 (例如 1)。
+        target_mel_bands (int): 目标Mel频谱频带数 (例如 1 或 80)。
         
     Returns:
         np.ndarray: 处理后的Mel频谱数据，形状为 (target_sequence_length, target_mel_bands)。
@@ -81,25 +97,24 @@ def generate_mel_spectrogram(audio_path, target_sfreq_features, target_sequence_
         # 常用FFT窗口大小
         n_fft = 2048 
         
-        # 计算Mel频谱
-        # 默认n_mels通常是128或80，这里我们先计算一个合理的数量，后续再聚合到target_mel_bands
-        mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=128)
-        
-        # 转换为分贝尺度
-        mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
-        
-        # 确保Mel频谱的维度匹配目标 (target_mel_bands = 1)
-        if target_mel_bands == 1:
+        # 根据任务模式选择Mel频谱生成策略
+        if SSM2MelConfig.TASK_MODE == "envelope":
+            # 音频包络重建模式：计算128频带后聚合为单频带
+            mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=128)
+            mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
             # 聚合所有频带到单个特征 (例如，取平均值)
             mel_feature = np.mean(mel_spec_db, axis=0, keepdims=True) # 形状 (1, n_frames)
+            
+        elif SSM2MelConfig.TASK_MODE == "mel_spectrogram":
+            # 完整Mel频谱重建模式：直接计算目标频带数的Mel频谱
+            mel_spec = librosa.feature.melspectrogram(
+                y=y, sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=target_mel_bands
+            )
+            mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+            mel_feature = mel_spec_db  # 直接使用多频带Mel频谱
+            
         else:
-            # 如果模型期望多个频带，则在这里进行切片或调整n_mels参数
-            if mel_spec_db.shape[0] < target_mel_bands:
-                # 如果计算出的频带数不足，进行填充
-                padding = np.zeros((target_mel_bands - mel_spec_db.shape[0], mel_spec_db.shape[1]))
-                mel_feature = np.concatenate((mel_spec_db, padding), axis=0)
-            else:
-                mel_feature = mel_spec_db[:target_mel_bands, :] # 切片到目标频带数
+            raise ValueError(f"未知的任务模式: {SSM2MelConfig.TASK_MODE}")
         
         # 确保Mel频谱的序列长度匹配目标 (target_sequence_length = 640)
         current_frames = mel_feature.shape[1]
@@ -198,7 +213,7 @@ def convert_data_for_ssm2mel():
                     audio_full_path, 
                     SSM2MelConfig.TARGET_SFREQ_FEATURES,
                     SSM2MelConfig.TARGET_SEQUENCE_LENGTH,
-                    SSM2MelConfig.TARGET_MEL_BANDS
+                    SSM2MelConfig.get_target_mel_bands()  # 使用动态配置
                 )
                 if mel_data is None: # 如果Mel生成失败，跳过此刺激
                     continue

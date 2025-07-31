@@ -1,6 +1,11 @@
+data_envelope
+inference_results_envelope
+result_model_conformer_envelope
+test_results_envelope
+visualization_results_envelope
+__pycache__
 data
 inference_results
 result_model_conformer
 test_results
 visualization_results
-__pycache__

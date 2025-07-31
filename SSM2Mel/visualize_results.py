@@ -21,57 +21,90 @@ def load_inference_results(results_path):
     
     return outputs, labels
 
-def mel_to_audio(mel_spec, sr=22050, hop_length=512, n_fft=2048):
+def mel_to_audio(mel_spec, sr=22050, hop_length=512, n_fft=2048, task_mode="envelope"):
     """
     将mel频谱转换回音频波形
     
     Args:
-        mel_spec: mel频谱，形状为 (time, 1) 或 (1, time)
+        mel_spec: mel频谱，形状根据任务模式而定
         sr: 目标采样率
         hop_length: hop长度
         n_fft: FFT窗口大小
+        task_mode: 任务模式 ("envelope" 或 "mel_spectrogram")
     
     Returns:
         audio: 音频波形
     """
     print(f"    mel_to_audio 输入形状: {mel_spec.shape}")
     print(f"    mel_to_audio 输入范围: [{mel_spec.min():.4f}, {mel_spec.max():.4f}]")
+    print(f"    任务模式: {task_mode}")
     
-    # 确保mel_spec是 (time, 1) 格式
-    if len(mel_spec.shape) == 1:
-        # 一维数组，重塑为 (time, 1)
-        mel_spec = mel_spec.reshape(-1, 1)
-        print(f"    重塑一维数组为: {mel_spec.shape}")
-    elif len(mel_spec.shape) == 2 and mel_spec.shape[0] == 1:
-        mel_spec = mel_spec.T  # 现在形状是 (time, 1)
-        print(f"    转置后形状: {mel_spec.shape}")
+    if task_mode == "envelope":
+        # 音频包络重建模式：处理单频带输入
+        # 确保mel_spec是 (time, 1) 格式
+        if len(mel_spec.shape) == 1:
+            # 一维数组，重塑为 (time, 1)
+            mel_spec = mel_spec.reshape(-1, 1)
+            print(f"    重塑一维数组为: {mel_spec.shape}")
+        elif len(mel_spec.shape) == 2 and mel_spec.shape[0] == 1:
+            mel_spec = mel_spec.T  # 现在形状是 (time, 1)
+            print(f"    转置后形状: {mel_spec.shape}")
+        
+        # 将分贝值转换回功率谱
+        mel_power = librosa.db_to_power(mel_spec)
+        print(f"    功率谱形状: {mel_power.shape}")
+        print(f"    功率谱范围: [{mel_power.min():.4f}, {mel_power.max():.4f}]")
+        
+        # 由于我们只有单个mel频带，需要重建完整的mel频谱
+        # 创建一个合理的mel频谱分布
+        n_mels = 128  # 标准mel频带数
+        time_steps = mel_power.shape[0]
+        print(f"    时间步数: {time_steps}")
+        
+        # 创建一个更合理的mel频谱分布，而不是简单复制
+        # 使用高斯分布来模拟不同频带的能量分布
+        freqs = np.linspace(0, 1, n_mels)
+        center_freq = 0.5  # 中心频率
+        bandwidth = 0.3    # 带宽
+        
+        # 创建频带权重
+        weights = np.exp(-((freqs - center_freq) ** 2) / (2 * bandwidth ** 2))
+        weights = weights.reshape(-1, 1)  # (n_mels, 1)
+        print(f"    权重形状: {weights.shape}")
+        
+        # 将单个mel值扩展到多个频带
+        full_mel_spec = mel_power.T * weights  # (n_mels, time_steps)
+        print(f"    完整mel频谱形状: {full_mel_spec.shape}")
+        print(f"    完整mel频谱范围: [{full_mel_spec.min():.4f}, {full_mel_spec.max():.4f}]")
+        
+    elif task_mode == "mel_spectrogram":
+        # 完整Mel频谱重建模式：直接使用多频带输入
+        print(f"    检测到多频带Mel频谱输入")
+        
+        # 确保mel_spec是 (time, num_mel_bands) 格式
+        if len(mel_spec.shape) == 2 and mel_spec.shape[1] > 1:
+            # 已经是多频带格式，直接使用
+            full_mel_spec = librosa.db_to_power(mel_spec.T)  # 转换为 (num_mel_bands, time)
+            print(f"    直接使用多频带Mel频谱，形状: {full_mel_spec.shape}")
+        else:
+            print(f"    警告：期望多频带输入但收到单频带，使用高斯分布扩展...")
+            # 如果意外收到单频带，使用高斯分布扩展
+            if len(mel_spec.shape) == 1:
+                mel_spec = mel_spec.reshape(-1, 1)
+            elif len(mel_spec.shape) == 2 and mel_spec.shape[0] == 1:
+                mel_spec = mel_spec.T
+            
+            mel_power = librosa.db_to_power(mel_spec)
+            n_mels = 128
+            freqs = np.linspace(0, 1, n_mels)
+            center_freq = 0.5
+            bandwidth = 0.3
+            weights = np.exp(-((freqs - center_freq) ** 2) / (2 * bandwidth ** 2))
+            weights = weights.reshape(-1, 1)
+            full_mel_spec = mel_power.T * weights
     
-    # 将分贝值转换回功率谱
-    mel_power = librosa.db_to_power(mel_spec)
-    print(f"    功率谱形状: {mel_power.shape}")
-    print(f"    功率谱范围: [{mel_power.min():.4f}, {mel_power.max():.4f}]")
-    
-    # 由于我们只有单个mel频带，需要重建完整的mel频谱
-    # 创建一个合理的mel频谱分布
-    n_mels = 128  # 标准mel频带数
-    time_steps = mel_power.shape[0]
-    print(f"    时间步数: {time_steps}")
-    
-    # 创建一个更合理的mel频谱分布，而不是简单复制
-    # 使用高斯分布来模拟不同频带的能量分布
-    freqs = np.linspace(0, 1, n_mels)
-    center_freq = 0.5  # 中心频率
-    bandwidth = 0.3    # 带宽
-    
-    # 创建频带权重
-    weights = np.exp(-((freqs - center_freq) ** 2) / (2 * bandwidth ** 2))
-    weights = weights.reshape(-1, 1)  # (n_mels, 1)
-    print(f"    权重形状: {weights.shape}")
-    
-    # 将单个mel值扩展到多个频带
-    full_mel_spec = mel_power.T * weights  # (n_mels, time_steps)
-    print(f"    完整mel频谱形状: {full_mel_spec.shape}")
-    print(f"    完整mel频谱范围: [{full_mel_spec.min():.4f}, {full_mel_spec.max():.4f}]")
+    else:
+        raise ValueError(f"未知的任务模式: {task_mode}")
     
     # 使用griffin-lim重建
     try:
@@ -99,14 +132,17 @@ def mel_to_audio(mel_spec, sr=22050, hop_length=512, n_fft=2048):
         duration = 10.0  # 固定10秒
         t = np.linspace(0, duration, int(sr * duration))
         # 使用mel值的平均值作为频率
-        freq = 440 + np.mean(mel_power) * 100  # 基础频率440Hz + mel值的影响
+        if task_mode == "envelope":
+            freq = 440 + np.mean(mel_power) * 100  # 基础频率440Hz + mel值的影响
+        else:
+            freq = 440 + np.mean(full_mel_spec) * 100
         audio = np.sin(2 * np.pi * freq * t) * 0.1
         print(f"    生成备用正弦波，长度: {len(audio)} 采样点 ({len(audio)/sr:.2f}秒)")
         return audio
 
 def visualize_mel_spectrogram(mel_spec, title="Mel Spectrogram", save_path=None):
     """可视化mel频谱"""
-    plt.figure(figsize=(12, 6))
+    plt.figure(figsize=(12, 8))
     
     # 处理不同形状的输入
     if len(mel_spec.shape) == 1:
@@ -118,25 +154,24 @@ def visualize_mel_spectrogram(mel_spec, title="Mel Spectrogram", save_path=None)
         mel_spec_viz = mel_spec.T
         print(f"    转置二维数组为: {mel_spec_viz.shape}")
     else:
-        mel_spec_viz = mel_spec
-        print(f"    保持原始形状: {mel_spec_viz.shape}")
+        mel_spec_viz = mel_spec.T  # 多频带情况，转置为 (bands, time)
+        print(f"    多频带Mel频谱，形状: {mel_spec_viz.shape}")
     
-    # 由于我们只有单个mel频带，创建一个简单的热力图显示
-    time_steps = mel_spec_viz.shape[1]
-    time_axis = np.linspace(0, 10, time_steps)  # 10秒
-    
-    # 创建热力图
-    plt.imshow(mel_spec_viz, aspect='auto', cmap='viridis', 
-               extent=[0, 10, 0, 1], origin='lower')
-    plt.colorbar(format='%+2.0f dB')
+    # 创建频谱图
+    plt.imshow(mel_spec_viz, aspect='auto', origin='lower', cmap='viridis')
+    plt.colorbar(label='Mel Value (dB)')
     plt.title(title)
-    plt.xlabel('Time (s)')
-    plt.ylabel('Mel Band')
-    plt.yticks([0.5], ['Single Mel Band'])
+    plt.xlabel('Time Steps')
+    plt.ylabel('Mel Bands')
+    
+    # 添加统计信息
+    stats_text = f'Range: [{mel_spec.min():.2f}, {mel_spec.max():.2f}] dB\nMean: {mel_spec.mean():.2f} dB\nStd: {mel_spec.std():.2f} dB'
+    plt.text(0.02, 0.98, stats_text, transform=plt.gca().transAxes, 
+             verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
     
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"    频谱图已保存到: {save_path}")
+        print(f"Mel频谱图已保存到: {save_path}")
     
     plt.show()
 
@@ -154,28 +189,84 @@ def compare_predictions_vs_labels(outputs, labels, save_dir):
         true = labels[i].squeeze()
         
         # 创建时间轴（10秒，640个时间步）
-        time_steps = len(pred)
+        time_steps = pred.shape[0]
         time_axis = np.linspace(0, 10, time_steps)  # 10秒
         
-        plt.figure(figsize=(15, 5))
+        plt.figure(figsize=(15, 10))
         
-        # 预测结果
-        plt.subplot(1, 2, 1)
-        plt.plot(time_axis, pred, label='Predicted', color='red')
-        plt.title(f'Sample {i+1}: Predicted Mel')
+        # 预测结果 - 多频带可视化
+        plt.subplot(2, 2, 1)
+        if len(pred.shape) == 2 and pred.shape[1] > 1:
+            # 多频带情况：显示前10个频带
+            n_bands_to_show = min(10, pred.shape[1])
+            for j in range(n_bands_to_show):
+                plt.plot(time_axis, pred[:, j], alpha=0.7, linewidth=0.8, label=f'Band {j+1}' if j < 3 else "")
+            plt.title(f'Sample {i+1}: Predicted Mel (First {n_bands_to_show} bands)')
+        else:
+            # 单频带情况
+            plt.plot(time_axis, pred, label='Predicted', color='red')
+            plt.title(f'Sample {i+1}: Predicted Mel')
         plt.xlabel('Time (s)')
         plt.ylabel('Mel Value (dB)')
-        plt.legend()
-        plt.grid(True)
+        if len(pred.shape) == 2 and pred.shape[1] > 1:
+            plt.legend(loc='upper right')
+        else:
+            plt.legend()
+        plt.grid(True, alpha=0.3)
         
-        # 真实标签
-        plt.subplot(1, 2, 2)
-        plt.plot(time_axis, true, label='Ground Truth', color='blue')
-        plt.title(f'Sample {i+1}: Ground Truth Mel')
+        # 真实标签 - 多频带可视化
+        plt.subplot(2, 2, 2)
+        if len(true.shape) == 2 and true.shape[1] > 1:
+            # 多频带情况：显示前10个频带
+            n_bands_to_show = min(10, true.shape[1])
+            for j in range(n_bands_to_show):
+                plt.plot(time_axis, true[:, j], alpha=0.7, linewidth=0.8, label=f'Band {j+1}' if j < 3 else "")
+            plt.title(f'Sample {i+1}: Ground Truth Mel (First {n_bands_to_show} bands)')
+        else:
+            # 单频带情况
+            plt.plot(time_axis, true, label='Ground Truth', color='blue')
+            plt.title(f'Sample {i+1}: Ground Truth Mel')
         plt.xlabel('Time (s)')
         plt.ylabel('Mel Value (dB)')
-        plt.legend()
-        plt.grid(True)
+        if len(true.shape) == 2 and true.shape[1] > 1:
+            plt.legend(loc='upper right')
+        else:
+            plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # 预测结果 - 频谱图
+        plt.subplot(2, 2, 3)
+        if len(pred.shape) == 2 and pred.shape[1] > 1:
+            # 多频带情况：显示频谱图
+            plt.imshow(pred.T, aspect='auto', origin='lower', cmap='viridis')
+            plt.colorbar(label='Mel Value (dB)')
+            plt.title(f'Sample {i+1}: Predicted Mel Spectrogram')
+            plt.xlabel('Time Steps')
+            plt.ylabel('Mel Bands')
+        else:
+            # 单频带情况：显示为热图
+            plt.imshow(pred.reshape(1, -1), aspect='auto', origin='lower', cmap='viridis')
+            plt.colorbar(label='Mel Value (dB)')
+            plt.title(f'Sample {i+1}: Predicted Mel')
+            plt.xlabel('Time Steps')
+            plt.ylabel('Mel Band')
+        
+        # 真实标签 - 频谱图
+        plt.subplot(2, 2, 4)
+        if len(true.shape) == 2 and true.shape[1] > 1:
+            # 多频带情况：显示频谱图
+            plt.imshow(true.T, aspect='auto', origin='lower', cmap='viridis')
+            plt.colorbar(label='Mel Value (dB)')
+            plt.title(f'Sample {i+1}: Ground Truth Mel Spectrogram')
+            plt.xlabel('Time Steps')
+            plt.ylabel('Mel Bands')
+        else:
+            # 单频带情况：显示为热图
+            plt.imshow(true.reshape(1, -1), aspect='auto', origin='lower', cmap='viridis')
+            plt.colorbar(label='Mel Value (dB)')
+            plt.title(f'Sample {i+1}: Ground Truth Mel')
+            plt.xlabel('Time Steps')
+            plt.ylabel('Mel Band')
         
         plt.tight_layout()
         save_path = os.path.join(save_dir, f'comparison_sample_{i+1}.png')
@@ -194,10 +285,21 @@ def convert_to_audio_files(outputs, save_dir, sr=22050):
         print(f"  预测数据范围: [{pred.min():.4f}, {pred.max():.4f}]")
         print(f"  预测数据均值: {pred.mean():.4f}")
         
+        # 自动检测任务模式
+        if len(pred.shape) == 1 or (len(pred.shape) == 2 and pred.shape[1] == 1):
+            task_mode = "envelope"
+            print(f"  检测到音频包络重建模式")
+        elif len(pred.shape) == 2 and pred.shape[1] > 1:
+            task_mode = "mel_spectrogram"
+            print(f"  检测到完整Mel频谱重建模式 (频带数: {pred.shape[1]})")
+        else:
+            task_mode = "mel_spectrogram"  # 默认假设为多频带
+            print(f"  未知输入格式，假设为完整Mel频谱重建模式")
+        
         # 将预测的mel频谱转换为音频
         try:
             print(f"  开始音频转换...")
-            audio = mel_to_audio(pred, sr=sr)
+            audio = mel_to_audio(pred, sr=sr, task_mode=task_mode)
             print(f"  音频转换成功，音频长度: {len(audio)} 采样点")
             print(f"  音频范围: [{audio.min():.4f}, {audio.max():.4f}]")
             

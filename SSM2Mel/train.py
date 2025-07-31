@@ -41,6 +41,9 @@ parser.add_argument('--saving_interval', type=int, default=10)
 parser.add_argument('--dataset_folder',type= str, default="/home/binwen6/code/CBD/SSM2Mel/data", help='')
 parser.add_argument('--split_folder',type= str, default="split_data")
 parser.add_argument('--experiment_folder')
+parser.add_argument('--task_mode', type=str, default="envelope", 
+                   choices=["envelope", "mel_spectrogram"], 
+                   help="任务模式: envelope(音频包络重建) 或 mel_spectrogram(完整Mel频谱重建)")
 
 args = parser.parse_args()
 
@@ -158,8 +161,13 @@ def main():
             l_p = pearson_loss(outputs, labels) 
             l_1 = l1_loss(outputs, labels)
 
-            # loss = l_p + args.lamda * l_1  + 3*info_nce
-            loss = l_p + args.lamda * l_1
+            # 使用新的组合损失函数
+            if args.task_mode == "mel_spectrogram":
+                # 完整Mel频谱重建：使用组合损失函数
+                loss, loss_components = combined_loss(outputs, labels, alpha=0.1, beta=0.05)
+            else:
+                # 音频包络重建：使用原有损失函数
+                loss = l_p + args.lamda * l_1
 
             loss = loss.mean()
             loss.backward()

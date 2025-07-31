@@ -8,10 +8,33 @@ from util.dataset import RegressionDataset
 import glob
 
 def load_model(model_path, device, **model_args):
-    """加载训练好的模型"""
+    """加载训练好的模型，自动检测任务模式"""
+    # 首先尝试加载检查点以检测任务模式
+    checkpoint = torch.load(model_path, map_location=device)
+    
+    # 检测检查点中的任务模式
+    fc_weight_shape = checkpoint['fc.weight'].shape
+    if fc_weight_shape[0] == 1:
+        detected_task_mode = "envelope"
+        print(f"🔍 检测到检查点任务模式: 音频包络重建 (输出维度: 1)")
+    elif fc_weight_shape[0] == 80:
+        detected_task_mode = "mel_spectrogram"
+        print(f"🔍 检测到检查点任务模式: 完整Mel频谱重建 (输出维度: 80)")
+    else:
+        detected_task_mode = "mel_spectrogram"  # 默认假设为多频带
+        print(f"⚠️  未知的输出维度 {fc_weight_shape[0]}，假设为完整Mel频谱重建模式")
+    
+    # 更新模型参数以匹配检查点
+    model_args['task_mode'] = detected_task_mode
+    
+    # 创建模型
     model = Decoder(**model_args).to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    
+    # 加载检查点
+    model.load_state_dict(checkpoint)
     model.eval()
+    
+    print(f"✅ 成功加载模型，任务模式: {detected_task_mode}")
     return model
 
 def inference_single_sample(model, eeg_data, sub_id, device):
@@ -51,7 +74,7 @@ def inference_on_dataset(model, data_loader, device):
 def main():
     parser = argparse.ArgumentParser(description='SSM2Mel Inference')
     parser.add_argument('--model_path', type=str, 
-                       default='/home/binwen6/code/CBD/SSM2Mel/result_model_conformer/model_epoch100.pt',
+                       default='/home/binwen6/code/CBD/SSM2Mel/result_model_conformer/model_epoch200.pt',
                        help='Path to the trained model')
     parser.add_argument('--data_folder', type=str, 
                        default='/home/binwen6/code/CBD/SSM2Mel/data/split_data',
@@ -74,6 +97,9 @@ def main():
     parser.add_argument('--fft_conv1d_padding', type=tuple, default=(4, 0))
     parser.add_argument('--dropout', type=float, default=0.5)
     parser.add_argument('--g_con', default=True)
+    parser.add_argument('--task_mode', type=str, default="mel_spectrogram", 
+                       choices=["envelope", "mel_spectrogram"], 
+                       help="任务模式: envelope(音频包络重建) 或 mel_spectrogram(完整Mel频谱重建)")
     
     args = parser.parse_args()
     
@@ -94,7 +120,8 @@ def main():
         'fft_conv1d_kernel': args.fft_conv1d_kernel,
         'fft_conv1d_padding': args.fft_conv1d_padding,
         'dropout': args.dropout,
-        'g_con': args.g_con
+        'g_con': args.g_con,
+        'task_mode': args.task_mode  # 添加任务模式参数
     }
     
     # 加载模型
