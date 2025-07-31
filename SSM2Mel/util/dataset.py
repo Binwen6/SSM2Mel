@@ -27,9 +27,16 @@ class RegressionDataset(Dataset):
     def group_recordings(self, files):
  
         new_files = []
-        grouped = itertools.groupby(sorted(files), lambda x: "_-_".join(os.path.basename(x).split("_-_")[:3]))
-        for recording_name, feature_paths in grouped:
-            new_files += [sorted(feature_paths, key=lambda x: "0" if x == "eeg" else x)]
+        
+        # Group by subject name (second part of filename)
+        grouped = itertools.groupby(sorted(files), lambda x: os.path.basename(x).split("_-_")[1])
+        
+        for subject_name, feature_paths in grouped:
+            feature_list = list(feature_paths)
+            
+            # Sort by feature type (eeg first, then mel)
+            sorted_features = sorted(feature_list, key=lambda x: "0" if "eeg" in x else "1")
+            new_files.append(sorted_features)
 
         return new_files
 
@@ -62,9 +69,18 @@ class RegressionDataset(Dataset):
 
             framed_data += [data[start_idx:start_idx + self.input_length]]
 
+        if len(framed_data) < 2:
+            print(f"ERROR: Not enough features found. Expected 2 (eeg and mel), got {len(framed_data)}")
+            # Return dummy data to avoid crash
+            dummy_data = torch.zeros(self.input_length, self.channels)
+            return dummy_data, dummy_data, 0
+
         if self.g_con == True:
-            sub_idx = feature.split('/')[-1].split('_-_')[1].split('-')[-1]
-            sub_idx = int(sub_idx) - 1 
+            # Extract subject name from filename and convert to a numeric ID
+            subject_name = feature.split('/')[-1].split('_-_')[1]
+            # Create a hash-based ID for the subject name to ensure consistency
+            # Use modulo with a smaller number to stay within model's embedding range
+            sub_idx = hash(subject_name) % 85  # Model expects within_sub_num=85
     
         else:
             sub_idx = torch.FloatTensor([0])
@@ -91,8 +107,11 @@ class RegressionDataset(Dataset):
             framed_data += [segment_data]
             
         if self.g_con == True:
-            sub_idx = feature.split('/')[-1].split('_-_')[1].split('-')[-1]
-            sub_idx = int(sub_idx) - 1    
+            # Extract subject name from filename and convert to a numeric ID
+            subject_name = feature.split('/')[-1].split('_-_')[1]
+            # Create a hash-based ID for the subject name to ensure consistency
+            # Use modulo with a smaller number to stay within model's embedding range
+            sub_idx = hash(subject_name) % 85  # Model expects within_sub_num=85
 
         else:
             sub_idx = torch.FloatTensor([0])

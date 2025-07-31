@@ -1,0 +1,6 @@
+data
+inference_results
+result_model_conformer
+test_results
+visualization_results
+__pycache__

@@ -22,7 +22,7 @@ parser.add_argument('--epoch',type=int, default=2000)
 parser.add_argument('--batch_size',type=int, default=32)
 parser.add_argument('--win_len',type=int, default = 10)
 parser.add_argument('--sample_rate',type=int, default = 64)
-parser.add_argument('--gpu', type=int, default=1)
+parser.add_argument('--gpu', type=int, default=0)
 parser.add_argument('--g_con', default=True, help="experiment for within subject")
 
 parser.add_argument('--in_channel', type=int, default=64, help="channel of the input eeg signal")
@@ -38,9 +38,9 @@ parser.add_argument('--lamda',type=float,default=0.2)
 parser.add_argument('--writing_interval', type=int, default=10)
 parser.add_argument('--saving_interval', type=int, default=10)
 
-parser.add_argument('--dataset_folder',type= str, default="/media/data2/data_human/icassp2024", help='')
+parser.add_argument('--dataset_folder',type= str, default="/home/binwen6/code/CBD/SSM2Mel/data", help='')
 parser.add_argument('--split_folder',type= str, default="split_data")
-parser.add_argument('--experiment_folder',default="/media/zhangsheng/HappyQuokka.正在施工2/moxing", help='/media/zhangsheng/HappyQuokka_system_for_EEG_Challenge/shili')
+parser.add_argument('--experiment_folder')
 
 args = parser.parse_args()
 
@@ -54,7 +54,7 @@ device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu"
 data_folder = os.path.join(args.dataset_folder, args.split_folder)
 features = ["eeg"] + ["mel"]
 # Create a directory to store (intermediate) results.
-result_folder = 'test_results'
+result_folder = '/home/binwen6/code/CBD/SSM2Mel/test_results'
 if args.experiment_folder is None:
     experiment_folder = "fft_nlayer{}_dmodel{}_nhead{}_win{}".format(args.n_layers, args.d_model, args.n_head, args.win_len)
 else: experiment_folder = args.experiment_folder
@@ -99,29 +99,17 @@ def main():
 
     print_size(model)
 
-
-
-
-
-
-
-    # pretrained_model_path = '/media/data2/liuzhuangwei/zs/HappyQuokka.正在施工14/result_model_bestmodel/model_epoch1970.pt'  # Replace this with the path to your pretrained model file.
-    # if os.path.isfile(pretrained_model_path):
-    #     model.load_state_dict(torch.load(pretrained_model_path), strict=False)
-    #     print(f"Loaded pretrained model from {pretrained_model_path}")
-    # else:
-    #     print(f"No pretrained model found at {pretrained_model_path}. Training from scratch.")
-
-
     # Define train set and loader.
     train_files = [x for x in glob.glob(os.path.join(data_folder, "train_-_*")) if os.path.basename(x).split("_-_")[-1].split(".")[0] in features]
+    
     train_set= RegressionDataset(train_files, input_length, args.in_channel, 'train', args.g_con)
+    
     train_dataloader = torch.utils.data.DataLoader(
             train_set,
             batch_size = args.batch_size,
             num_workers = 4,
             sampler = None,
-            drop_last=True,
+            drop_last=False,  # Use drop_last=False to handle small datasets
             shuffle=True)
 
     # Define validation set and loader.
@@ -146,18 +134,13 @@ def main():
         drop_last=True,
         shuffle=False)
 
+    print("Validation files:")
+    for file in val_files:
+        print(file)
 
-    # print("Training files:")
-    # for file in train_files:
-    #     print(file)
-
-    # print("Validation files:")
-    # for file in val_files:
-    #     print(file)
-
-    # print("Test files:")
-    # for file in test_files:
-    #     print(file)
+    print("Test files:")
+    for file in test_files:
+        print(file)
 
     # Train the model.
     for epoch in range(args.epoch):
@@ -171,9 +154,6 @@ def main():
             labels = labels.to(device)
             sub_id = sub_id.to(device)
             outputs = model(inputs, sub_id)
-
-
-
 
             l_p = pearson_loss(outputs, labels) 
             l_1 = l1_loss(outputs, labels)
@@ -248,7 +228,10 @@ def main():
                 writer.add_losses("Pearson", "Test",  test_metric, epoch)
 
         if epoch % args.saving_interval == 0:
-            save_path = "result_model_conformer/model_epoch{}.pt".format(epoch)
+            # Create the directory if it doesn't exist
+            save_dir = "/home/binwen6/code/CBD/SSM2Mel/result_model_conformer"
+            os.makedirs(save_dir, exist_ok=True)
+            save_path = os.path.join(save_dir, "model_epoch{}.pt".format(epoch))
             torch.save(model.state_dict(), save_path)  
 
         scheduler.step()
