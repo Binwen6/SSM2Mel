@@ -74,7 +74,7 @@ def inference_on_dataset(model, data_loader, device):
 def main():
     parser = argparse.ArgumentParser(description='SSM2Mel Inference')
     parser.add_argument('--model_path', type=str, 
-                       default='/home/binwen6/code/CBD/SSM2Mel/result_model_conformer/model_epoch200.pt',
+                       default='/home/binwen6/code/CBD/SSM2Mel/result_model_conformer/model_epoch150.pt',
                        help='Path to the trained model')
     parser.add_argument('--data_folder', type=str, 
                        default='/home/binwen6/code/CBD/SSM2Mel/data/split_data',

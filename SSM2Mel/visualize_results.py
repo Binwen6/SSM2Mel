@@ -173,7 +173,7 @@ def visualize_mel_spectrogram(mel_spec, title="Mel Spectrogram", save_path=None)
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"Mel频谱图已保存到: {save_path}")
     
-    plt.show()
+    # plt.show()
 
 def compare_predictions_vs_labels(outputs, labels, save_dir):
     """比较预测结果和真实标签"""
@@ -182,7 +182,7 @@ def compare_predictions_vs_labels(outputs, labels, save_dir):
         return
     
     # 选择前几个样本进行比较
-    n_samples = min(5, len(outputs))
+    n_samples = max(5, len(outputs))
     
     for i in range(n_samples):
         pred = outputs[i].squeeze()
@@ -272,7 +272,7 @@ def compare_predictions_vs_labels(outputs, labels, save_dir):
         save_path = os.path.join(save_dir, f'comparison_sample_{i+1}.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"比较图已保存到: {save_path}")
-        plt.show()
+        # plt.show()
 
 def convert_to_audio_files(outputs, save_dir, sr=22050):
     """将预测结果转换为音频文件"""
@@ -286,10 +286,18 @@ def convert_to_audio_files(outputs, save_dir, sr=22050):
         print(f"  预测数据均值: {pred.mean():.4f}")
         
         # 自动检测任务模式
-        if len(pred.shape) == 1 or (len(pred.shape) == 2 and pred.shape[1] == 1):
+        if len(pred.shape) == 1:
+            task_mode = "envelope"
+            print(f"  检测到音频包络重建模式")
+        elif len(pred.shape) == 2 and pred.shape[1] == 1:
             task_mode = "envelope"
             print(f"  检测到音频包络重建模式")
         elif len(pred.shape) == 2 and pred.shape[1] > 1:
+            task_mode = "mel_spectrogram"
+            print(f"  检测到完整Mel频谱重建模式 (频带数: {pred.shape[1]})")
+        elif len(pred.shape) == 3 and pred.shape[2] > 1:
+            # 处理 (time, 1, bands) 格式
+            pred = pred.squeeze(1)  # 变为 (time, bands)
             task_mode = "mel_spectrogram"
             print(f"  检测到完整Mel频谱重建模式 (频带数: {pred.shape[1]})")
         else:
@@ -328,7 +336,7 @@ def main():
                        help='Output directory for visualizations and audio files')
     parser.add_argument('--sample_rate', type=int, default=22050,
                        help='Target audio sample rate')
-    parser.add_argument('--max_samples', type=int, default=10,
+    parser.add_argument('--max_samples', type=int, default=75,
                        help='Maximum number of samples to process')
     
     args = parser.parse_args()

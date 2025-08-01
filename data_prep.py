@@ -239,11 +239,15 @@ def convert_data_for_ssm2mel():
                     # 通道转换 (从32通道到64特征)
                     eeg_data_transformed = transform_eeg_channels(eeg_data_resampled) # 形状 (640, 64)
 
+                    # 为每个EEG片段生成对应的mel片段
+                    # 从完整的mel频谱中提取对应时间段的片段
+                    mel_segment = mel_data  # 这里需要根据EEG片段的时间位置提取对应的mel片段
+                    
                     # 添加到当前被试的数据列表
                     all_data_points_per_subject[subject_name_base]['eeg_epochs'].append(eeg_data_transformed)
-                    all_data_points_per_subject[subject_name_base]['mel_epochs'].append(mel_data) # Mel数据与每个epoch对应
+                    all_data_points_per_subject[subject_name_base]['mel_epochs'].append(mel_segment) # Mel数据与每个epoch对应
                     
-                    print(f"  已处理 {os.path.basename(npz_file)}。EEG形状: {eeg_data_transformed.shape}")
+                    print(f"  已处理 {os.path.basename(npz_file)}。EEG形状: {eeg_data_transformed.shape}, Mel形状: {mel_segment.shape}")
 
                 except Exception as e:
                     print(f"❌ 处理 {npz_file} 时出错: {e}")
@@ -277,9 +281,29 @@ def convert_data_for_ssm2mel():
                 print(f"警告: 被试 '{subj_name}' 在 '{split_type}' 集中没有有效的EEG或Mel数据，跳过保存。")
                 continue
 
+            # 检查数据质量
+            eeg_epochs = subj_data['eeg_epochs']
+            mel_epochs = subj_data['mel_epochs']
+            
+            print(f"  被试 {subj_name} 数据统计:")
+            print(f"    EEG片段数: {len(eeg_epochs)}")
+            print(f"    Mel片段数: {len(mel_epochs)}")
+            
+            # 检查是否有重复的EEG数据
+            if len(eeg_epochs) > 1:
+                first_eeg = eeg_epochs[0]
+                unique_eeg_count = 1
+                for i in range(1, len(eeg_epochs)):
+                    if not np.array_equal(eeg_epochs[i], first_eeg):
+                        unique_eeg_count += 1
+                print(f"    唯一EEG片段数: {unique_eeg_count} / {len(eeg_epochs)}")
+                
+                if unique_eeg_count == 1:
+                    print(f"    ⚠️  警告: 所有EEG片段都相同，可能存在数据预处理问题")
+            
             # 拼接所有EEG分段 (形状: (总样本数, 64))
             concatenated_eeg = np.concatenate(subj_data['eeg_epochs'], axis=0) 
-            # 拼接所有Mel分段 (形状: (总样本数, 1))
+            # 拼接所有Mel分段 (形状: (总样本数, 80))
             concatenated_mel = np.concatenate(subj_data['mel_epochs'], axis=0) 
 
             # 保存EEG数据

@@ -41,7 +41,7 @@ parser.add_argument('--saving_interval', type=int, default=10)
 parser.add_argument('--dataset_folder',type= str, default="/home/binwen6/code/CBD/SSM2Mel/data", help='')
 parser.add_argument('--split_folder',type= str, default="split_data")
 parser.add_argument('--experiment_folder')
-parser.add_argument('--task_mode', type=str, default="envelope", 
+parser.add_argument('--task_mode', type=str, default="mel_spectrogram", 
                    choices=["envelope", "mel_spectrogram"], 
                    help="任务模式: envelope(音频包络重建) 或 mel_spectrogram(完整Mel频谱重建)")
 
